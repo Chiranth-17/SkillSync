@@ -75,7 +75,7 @@ const ChatMessageSchema = new mongoose.Schema({
 });
 
 module.exports = {
-  Session: mongoose.model('Session', SessionSchema),
-  Exchange: mongoose.model('Exchange', ExchangeSchema),
-  ChatMessage: mongoose.model('ChatMessage', ChatMessageSchema)
+  Session: mongoose.models.Session || mongoose.model('Session', SessionSchema),
+  Exchange: mongoose.models.Exchange || mongoose.model('Exchange', ExchangeSchema),
+  ChatMessage: mongoose.models.ChatMessage || mongoose.model('ChatMessage', ChatMessageSchema)
 };

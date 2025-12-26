@@ -17,6 +17,9 @@ const mentorRoutes = require('./routes/mentors');
 const uploadRoutes = require('./routes/upload');
 const videoRoutes = require('./routes/videoRoutes');
 const userRoutes = require('./routes/userRoutes');
+const mlRoutes = require('./routes/mlRoutes');
+const analyticsRoutes = require('./routes/analyticsRoutes');
+const rvVerificationRoutes = require('./routes/rvVerificationRoutes');
 
 const app = express();
 const http = require('http');
@@ -26,8 +29,10 @@ const { Server } = require('socket.io');
 // CONNECT TO DATABASE
 // ----------------------------------------------
 connectDB(process.env.MONGO_URI).catch((err) => {
-  console.error('Failed to connect to DB, exiting.', err.message || err);
-  process.exit(1);
+  console.error('MongoDB Connection Error:', err.message);
+  console.error('⚠️ Backend running without database - some features unavailable');
+  console.warn('Frontend will work but database features disabled');
+  // Don't exit - let server start anyway for development
 });
 
 // ----------------------------------------------
@@ -65,50 +70,31 @@ app.use('/api/upload', uploadRoutes);
 app.use('/api/videos', videoRoutes); // For POST /api/videos/upload
 app.use('/api/user/demo-videos', videoRoutes); // For GET/DELETE /api/user/demo-videos
 app.use('/api/user', userRoutes); // For /api/user/profile
+app.use('/api/ml', mlRoutes); // ML-powered skill recommendations
+app.use('/api/ml', analyticsRoutes); // ML analytics and predictions
+app.use('/api/rv-verification', rvVerificationRoutes); // RV College verification
 
 // ----------------------------------------------
-// SOCKET.IO (simple chat for sessions)
+// SOCKET.IO (authenticated real-time chat)
 // ----------------------------------------------
 const server = http.createServer(app);
+const corsOrigin = process.env.SOCKET_IO_CORS_ORIGIN || 'http://localhost:5173';
 const io = new Server(server, {
-  cors: { origin: ["http://localhost:5173", "http://localhost:5174"], methods: ["GET","POST"], credentials: true }
+  cors: { 
+    origin: corsOrigin.split(',').map(o => o.trim()), 
+    methods: ["GET","POST"], 
+    credentials: true 
+  }
 });
 
+const authenticateSocket = require('./utils/socketAuth');
+const setupChatHandlers = require('./sockets/chatHandler');
+
+io.use(authenticateSocket);
+
 io.on('connection', (socket) => {
-  console.log('A user connected:', socket.id);
-
-  socket.on('join', (sessionId) => {
-    if (sessionId) {
-      socket.join(sessionId);
-      console.log(`socket ${socket.id} joined ${sessionId}`);
-    }
-  });
-
-  socket.on('message', async (payload) => {
-    try {
-      const Session = require('./models/Session');
-      const User = require('./models/user');
-      const { sessionId, text, from } = payload || {};
-      if (!sessionId || !text || !from) return;
-      const session = await Session.findById(sessionId);
-      if (!session) return;
-      const user = await User.findById(from);
-      const fromName = user ? user.name : 'Unknown';
-      const msg = { from, fromName, text, createdAt: new Date() };
-      session.messages.push(msg);
-      await session.save();
-      io.to(sessionId).emit('message', msg);
-    } catch (err) { console.error('socket message error', err); }
-  });
-
-  socket.on('sendMessage', (message) => {
-    console.log('Message received:', message);
-    socket.broadcast.emit('receiveMessage', message);
-  });
-
-  socket.on('disconnect', () => {
-    console.log('A user disconnected:', socket.id);
-  });
+  console.log(`Socket.io: User ${socket.userId} connected (${socket.id})`);
+  setupChatHandlers(io, socket);
 });
 
 // ----------------------------------------------

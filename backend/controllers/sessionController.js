@@ -1,6 +1,8 @@
 const User = require('../models/user');
 const Skill = require('../models/skill');
 const { Session, Exchange } = require('../models/session');
+const { generateMeetingLink } = require('../utils/jitsiHelper');
+const { sendSessionRequest, sendSessionScheduled } = require('../services/emailService');
 
 // Create a new session booking (learner requests a session with mentor)
 exports.requestSession = async (req, res, next) => {
@@ -35,6 +37,11 @@ exports.requestSession = async (req, res, next) => {
     });
 
     await session.save();
+
+    sendSessionRequest(mentor, learner, session).catch(err => {
+      console.error('Failed to send session request email:', err.message);
+    });
+
     res.status(201).json({ message: 'requested', session });
   } catch (err) {
     next(err);
@@ -225,12 +232,25 @@ exports.acceptRequest = async (req, res) => {
       return res.status(400).json({ message: 'Session is not pending' });
     }
 
-    const meetingId = Math.random().toString(36).substr(2, 11);
-    const meetingLink = `https://zoom.us/meeting/${meetingId}`;
+    const meetingLink = generateMeetingLink(session._id.toString());
     
     session.status = 'accepted';
     session.meetingLink = meetingLink;
     await session.save();
+
+    const populatedSession = await Session.findById(session._id)
+      .populate('mentor', 'name email')
+      .populate('learner', 'name email');
+
+    if (populatedSession) {
+      sendSessionScheduled(
+        populatedSession.mentor,
+        populatedSession.learner,
+        populatedSession
+      ).catch(err => {
+        console.error('Failed to send session scheduled email:', err.message);
+      });
+    }
 
     res.status(200).json(session);
   } catch (error) {
@@ -279,15 +299,20 @@ exports.scheduleSession = async (req, res) => {
     if (meetingLink) {
       updateData.meetingLink = meetingLink;
     } else {
-      const meetingId = Math.random().toString(36).substr(2, 11);
-      updateData.meetingLink = `https://zoom.us/meeting/${meetingId}`;
+      updateData.meetingLink = generateMeetingLink(req.params.id);
     }
     
-    const session = await Session.findByIdAndUpdate(req.params.id, updateData, { new: true });
+    const session = await Session.findByIdAndUpdate(req.params.id, updateData, { new: true })
+      .populate('mentor', 'name email')
+      .populate('learner', 'name email');
 
     if (!session) {
       return res.status(404).json({ message: 'Session not found' });
     }
+
+    sendSessionScheduled(session.mentor, session.learner, session).catch(err => {
+      console.error('Failed to send session scheduled email:', err.message);
+    });
 
     res.status(200).json(session);
   } catch (error) {

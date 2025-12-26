@@ -56,11 +56,16 @@ exports.register = async (req, res, next) => {
 
     const { name, email, password } = req.body;
     
-    // Check if name already exists
-    const existingName = await User.findOne({ name });
+    // Validate input
+    if (!name || !email || !password) {
+      return res.status(400).json({ message: 'Name, email, and password are required' });
+    }
+
+    // Check if name already exists (case-insensitive)
+    const existingName = await User.findOne({ name: { $regex: new RegExp('^' + name + '$', 'i') } });
     if (existingName) return res.status(400).json({ message: 'Name already taken' });
     
-    // Check if email already exists
+    // Check if email already exists (case-insensitive)
     const existingEmail = await User.findOne({ email: email.toLowerCase() });
     if (existingEmail) return res.status(400).json({ message: 'Email already registered' });
 
@@ -68,8 +73,8 @@ exports.register = async (req, res, next) => {
     const passwordHash = await bcrypt.hash(password, salt);
 
     const user = new User({
-      name,
-      email: email.toLowerCase(),
+      name: name.trim(),
+      email: email.toLowerCase().trim(),
       passwordHash
     });
 
@@ -91,9 +96,15 @@ exports.register = async (req, res, next) => {
         rating: user.rating || 0,
         reviewsCount: user.reviewsCount || 0
       },
-      accessToken // optional: useful if frontend wants to store in memory; cookie will handle auth for subsequent requests if using credentials
+      accessToken
     });
   } catch (err) {
+    console.error('Registration error:', err);
+    if (err.code === 11000) {
+      // MongoDB duplicate key error
+      const field = Object.keys(err.keyPattern)[0];
+      return res.status(400).json({ message: `${field} already exists` });
+    }
     next(err);
   }
 };
@@ -106,17 +117,26 @@ exports.login = async (req, res, next) => {
 
     const { username, password } = req.body;
     
-    // username can be either name or email
+    // Validate input
+    if (!username || !password) {
+      return res.status(400).json({ message: 'Username and password are required' });
+    }
+    
+    // username can be either name or email (case-insensitive for email)
     const user = await User.findOne({
       $or: [
         { name: username },
         { email: username.toLowerCase() }
       ]
     });
-    if (!user || !user.passwordHash) return res.status(401).json({ message: 'Invalid credentials' });
+    if (!user || !user.passwordHash) {
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
 
     const isMatch = await bcrypt.compare(password, user.passwordHash);
-    if (!isMatch) return res.status(401).json({ message: 'Invalid credentials' });
+    if (!isMatch) {
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
 
     const { accessToken } = await setAuthCookies(res, user);
 
@@ -137,6 +157,7 @@ exports.login = async (req, res, next) => {
       accessToken
     });
   } catch (err) {
+    console.error('Login error:', err);
     next(err);
   }
 };

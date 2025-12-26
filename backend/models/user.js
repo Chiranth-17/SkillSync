@@ -125,7 +125,12 @@ const UserSchema = new mongoose.Schema({
       feedback: { type: String, default: '' },
       createdAt: { type: Date, default: Date.now }
     }
-  ]
+  ],
+  role: {
+    type: String,
+    enum: ['user', 'admin'],
+    default: 'user'
+  }
 }, {
   toJSON: { virtuals: true },
   toObject: { virtuals: true }

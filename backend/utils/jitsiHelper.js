@@ -1,0 +1,12 @@
+const { v4: uuidv4 } = require('uuid');
+
+function generateMeetingLink(sessionId) {
+  const baseUrl = process.env.JITSI_BASE_URL || 'https://meet.jit.si';
+  const roomId = `session-${sessionId}-${uuidv4()}`;
+  
+  const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+  
+  return `${cleanBaseUrl}/${roomId}`;
+}
+
+module.exports = { generateMeetingLink };
