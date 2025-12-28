@@ -2,6 +2,7 @@
 const { validationResult } = require('express-validator');
 const bcrypt = require('bcryptjs');
 const User = require('../models/user');
+const RVVerification = require('../models/RVVerification');
 const { createAccessToken, createRefreshToken, rotateRefreshToken, revokeRefreshToken } = require('../utils/tokenService');
 const nodemailer = require('nodemailer');
 
@@ -167,7 +168,12 @@ exports.getMe = async (req, res, next) => {
   try {
     const user = await User.findById(req.user.id).select('-passwordHash -__v');
     if (!user) return res.status(404).json({ message: 'User not found' });
-    res.json({ user });
+    
+    const rvVerification = await RVVerification.findOne({ userId: req.user.id }).select('status').lean();
+    const userObj = user.toObject();
+    userObj.rvVerificationStatus = rvVerification?.status === 'verified' ? 'verified' : null;
+    
+    res.json({ user: userObj });
   } catch (err) {
     next(err);
   }
