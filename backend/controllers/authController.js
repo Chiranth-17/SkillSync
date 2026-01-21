@@ -1,10 +1,14 @@
 // controllers/authController.js
 const { validationResult } = require('express-validator');
 const bcrypt = require('bcryptjs');
-const User = require('../models/user');
+const User = require('../models/User');
 const RVVerification = require('../models/RVVerification');
 const { createAccessToken, createRefreshToken, rotateRefreshToken, revokeRefreshToken } = require('../utils/tokenService');
 const nodemailer = require('nodemailer');
+const crypto = require('crypto');
+const { validateEmailStrict } = require('../utils/emailValidation');
+
+const LEGACY_CUTOFF_DATE = new Date('2026-01-18T00:00:00Z'); // Fixed deployment date for verification enforcement
 
 const saltRounds = parseInt(process.env.BCRYPT_SALT_ROUNDS || '10', 10);
 
@@ -56,16 +60,22 @@ exports.register = async (req, res, next) => {
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
     const { name, email, password } = req.body;
-    
+
     // Validate input
     if (!name || !email || !password) {
       return res.status(400).json({ message: 'Name, email, and password are required' });
     }
 
+    // Strict Email Validation
+    const { isValid, error } = await validateEmailStrict(email);
+    if (!isValid) {
+      return res.status(400).json({ message: error });
+    }
+
     // Check if name already exists (case-insensitive)
     const existingName = await User.findOne({ name: { $regex: new RegExp('^' + name + '$', 'i') } });
     if (existingName) return res.status(400).json({ message: 'Name already taken' });
-    
+
     // Check if email already exists (case-insensitive)
     const existingEmail = await User.findOne({ email: email.toLowerCase() });
     if (existingEmail) return res.status(400).json({ message: 'Email already registered' });
@@ -76,11 +86,19 @@ exports.register = async (req, res, next) => {
     const user = new User({
       name: name.trim(),
       email: email.toLowerCase().trim(),
-      passwordHash
+      passwordHash,
+      passwordHash,
     });
+
+    // Optional: Add security question if provided (Required in new flow)
+    if (req.body.securityQuestion && req.body.securityAnswer) {
+      user.securityQuestion = req.body.securityQuestion;
+      user.securityAnswerHash = await bcrypt.hash(req.body.securityAnswer.trim().toLowerCase(), salt);
+    }
 
     await user.save();
 
+    // Auto-login after register
     const { accessToken } = await setAuthCookies(res, user);
 
     res.status(201).json({
@@ -93,7 +111,6 @@ exports.register = async (req, res, next) => {
         points: user.points,
         teaches: user.teaches || [],
         learns: user.learns || [],
-        badges: user.badges || [],
         rating: user.rating || 0,
         reviewsCount: user.reviewsCount || 0
       },
@@ -117,12 +134,12 @@ exports.login = async (req, res, next) => {
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
     const { username, password } = req.body;
-    
+
     // Validate input
     if (!username || !password) {
       return res.status(400).json({ message: 'Username and password are required' });
     }
-    
+
     // username can be either name or email (case-insensitive for email)
     const user = await User.findOne({
       $or: [
@@ -139,6 +156,8 @@ exports.login = async (req, res, next) => {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
+
+
     const { accessToken } = await setAuthCookies(res, user);
 
     res.json({
@@ -151,7 +170,7 @@ exports.login = async (req, res, next) => {
         points: user.points,
         teaches: user.teaches || [],
         learns: user.learns || [],
-        badges: user.badges || [],
+        level: user.level || 'Novice',
         rating: user.rating || 0,
         reviewsCount: user.reviewsCount || 0
       },
@@ -168,11 +187,17 @@ exports.getMe = async (req, res, next) => {
   try {
     const user = await User.findById(req.user.id).select('-passwordHash -__v');
     if (!user) return res.status(404).json({ message: 'User not found' });
-    
-    const rvVerification = await RVVerification.findOne({ userId: req.user.id }).select('status').lean();
+
     const userObj = user.toObject();
-    userObj.rvVerificationStatus = rvVerification?.status === 'verified' ? 'verified' : null;
-    
+
+    // Use the isVerified flag directly (synced with RVVerification)
+    userObj.rvVerificationStatus = user.isVerified ? 'verified' : null;
+
+    // Filter rvProfile: Only show if verified
+    if (!user.isVerified) {
+      delete userObj.rvProfile;
+    }
+
     res.json({ user: userObj });
   } catch (err) {
     next(err);
@@ -199,7 +224,7 @@ exports.refresh = async (req, res, next) => {
     const userId = doc.user;
 
     // create new access token
-    const UserModel = require('../models/user');
+    const UserModel = require('../models/User');
     const user = await UserModel.findById(userId);
     if (!user) return res.status(401).json({ message: 'User not found' });
 
@@ -248,6 +273,7 @@ exports.updateMe = async (req, res, next) => {
     if (typeof req.body.website === 'string') updates.website = req.body.website.trim();
     if (typeof req.body.title === 'string') updates.title = req.body.title.trim();
     if (typeof req.body.yearsOfExperience === 'number') updates.yearsOfExperience = req.body.yearsOfExperience;
+    if (typeof req.body.roadmapGoal === 'string') updates.roadmapGoal = req.body.roadmapGoal.trim();
 
     // Handle demoVideos: expect array of {url, description}
     if (Array.isArray(req.body.demoVideos)) {
@@ -332,5 +358,173 @@ exports.verifyEmail = async (req, res) => {
     res.status(200).json({ message: 'Email verified successfully' });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+};
+
+// Forgot Password - Initiate Reset
+exports.forgotPassword = async (req, res, next) => {
+  const { email } = req.body;
+  try {
+    if (!email) return res.status(400).json({ message: 'Email is required' });
+
+    const user = await User.findOne({ email: email.toLowerCase() });
+    if (!user) {
+      // Security: Don't reveal if user exists
+      return res.status(200).json({ message: 'If that email is registered, we have sent a password reset link.' });
+    }
+
+    // CHECK: If user is "new" (by cutoff) and not verified, do we allow reset?
+    // Constraint: "Existing users → auto-treated as verified".
+    const isLegacy = user.createdAt <= LEGACY_CUTOFF_DATE;
+    if (!user.isVerified && !isLegacy) {
+      return res.status(403).json({ message: 'Email must be verified before resetting password.' });
+    }
+
+    // Generate token
+    const token = crypto.randomBytes(32).toString('hex');
+    user.resetPasswordToken = token;
+    user.resetPasswordExpires = Date.now() + 3600000; // 1 hour
+
+    await user.save();
+
+    // Send email
+    const transporter = nodemailer.createTransport({
+      service: 'Gmail',
+      auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS }
+    });
+
+    const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${token}`;
+    const mailOptions = {
+      to: user.email,
+      from: process.env.EMAIL_USER,
+      subject: 'Password Reset Request',
+      text: `You are receiving this because you (or someone else) have requested the reset of the password for your account.\n\n` +
+        `Please click on the following link, or paste this into your browser to complete the process:\n\n` +
+        `${resetUrl}\n\n` +
+        `If you did not request this, please ignore this email and your password will remain unchanged.\n`,
+      html: `<p>You requested a password reset.</p><p><a href="${resetUrl}">Click here to reset password</a></p>`
+    };
+
+    await transporter.sendMail(mailOptions);
+    res.status(200).json({ message: 'If that email is registered, we have sent a password reset link.' });
+
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Reset Password - Verify Token and Update
+exports.resetPassword = async (req, res, next) => {
+  const { token, newPassword } = req.body;
+  try {
+    const user = await User.findOne({
+      resetPasswordToken: token,
+      resetPasswordExpires: { $gt: Date.now() }
+    });
+
+    if (!user) {
+      return res.status(400).json({ message: 'Password reset token is invalid or has expired.' });
+    }
+
+    if (!newPassword || newPassword.length < 6) return res.status(400).json({ message: 'Password must be at least 6 characters.' });
+
+    const salt = await bcrypt.genSalt(saltRounds);
+    user.passwordHash = await bcrypt.hash(newPassword, salt);
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpires = undefined;
+
+    await user.save();
+    res.status(200).json({ message: 'Password has been updated.' });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Update Security Question
+exports.updateSecuritySettings = async (req, res, next) => {
+  try {
+    const { securityQuestion, securityAnswer } = req.body;
+    if (!securityQuestion || !securityAnswer) {
+      return res.status(400).json({ message: 'Question and Answer are required' });
+    }
+
+    const salt = await bcrypt.genSalt(saltRounds);
+    const hash = await bcrypt.hash(securityAnswer.trim().toLowerCase(), salt);
+
+    const user = await User.findById(req.user.id);
+    user.securityQuestion = securityQuestion;
+    user.securityAnswerHash = hash;
+    user.securityAnswerAttempts = 0;
+    user.securityLockoutUntil = null;
+
+    await user.save();
+    res.json({ message: 'Security question updated successfully' });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Check if recovery is available for email
+exports.getRecoveryCheck = async (req, res, next) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ message: 'Email required' });
+
+    const user = await User.findOne({ email: email.toLowerCase() });
+    if (!user) {
+      return res.json({ hasSecurityQuestion: false });
+    }
+
+    if (user.securityQuestion) {
+      return res.json({ hasSecurityQuestion: true, question: user.securityQuestion });
+    }
+
+    return res.json({ hasSecurityQuestion: false });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Reset Password via Security Question
+exports.resetPasswordViaQuestion = async (req, res, next) => {
+  try {
+    const { email, listAnswer, newPassword } = req.body;
+    // Note: listAnswer = user input answer
+    if (!email || !listAnswer || !newPassword) return res.status(400).json({ message: 'Missing fields' });
+    if (newPassword.length < 6) return res.status(400).json({ message: 'Password too short' });
+
+    const user = await User.findOne({ email: email.toLowerCase() });
+    if (!user || !user.securityQuestion || !user.securityAnswerHash) {
+      return res.status(400).json({ message: 'Recovery not available for this account' });
+    }
+
+    // Check Lockout
+    if (user.securityLockoutUntil && user.securityLockoutUntil > Date.now()) {
+      return res.status(429).json({ message: 'Too many attempts. Try again later.' });
+    }
+
+    const isMatch = await bcrypt.compare(listAnswer.trim().toLowerCase(), user.securityAnswerHash);
+
+    if (!isMatch) {
+      user.securityAnswerAttempts += 1;
+      if (user.securityAnswerAttempts >= 5) {
+        user.securityLockoutUntil = Date.now() + 15 * 60 * 1000; // 15 min lockout
+        user.securityAnswerAttempts = 0; // reset counter after locking
+      }
+      await user.save();
+      return res.status(400).json({ message: 'Incorrect answer' });
+    }
+
+    // Success
+    const salt = await bcrypt.genSalt(saltRounds);
+    user.passwordHash = await bcrypt.hash(newPassword, salt);
+    user.securityAnswerAttempts = 0;
+    user.securityLockoutUntil = null;
+    await user.save();
+
+    res.json({ message: 'Password reset successful. You can now login.' });
+
+  } catch (err) {
+    next(err);
   }
 };

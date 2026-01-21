@@ -20,7 +20,7 @@ const { Session } = require('../models/Session');
 const SessionSuccessTrainingSample = require('../models/SessionSuccessTrainingSample');
 const SessionSuccessModelParams = require('../models/SessionSuccessModelParams');
 const { trainSessionSuccessModel } = require('../ml/sessionSuccessModel');
-const User = require('../models/user');
+const User = require('../models/User');
 const Skill = require('../models/skill');
 
 // Parse command line arguments
@@ -106,7 +106,7 @@ async function main() {
     // Step 4: Save model to database
     console.log('Step 4: Saving model to database...');
     const modelVersion = `v${Date.now()}`;
-    
+
     await SessionSuccessModelParams.saveModel({
       modelVersion,
       weights: trainedModel.weights,
@@ -156,7 +156,7 @@ async function main() {
  */
 async function generateTrainingSamples() {
   console.log('Fetching completed sessions...');
-  
+
   const sessions = await Session.find({
     status: { $in: ['completed', 'cancelled'] },
     skillRef: { $exists: true }

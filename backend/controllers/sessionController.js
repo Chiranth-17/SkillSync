@@ -1,6 +1,6 @@
-const User = require('../models/user');
+const User = require('../models/User');
 const Skill = require('../models/skill');
-const { Session, Exchange } = require('../models/session');
+const { Session } = require('../models/Session');
 const { generateMeetingLink } = require('../utils/jitsiHelper');
 const { sendSessionRequest, sendSessionScheduled } = require('../services/emailService');
 
@@ -8,7 +8,7 @@ const { sendSessionRequest, sendSessionScheduled } = require('../services/emailS
 exports.requestSession = async (req, res, next) => {
   try {
     const learnerId = req.user.id;
-    const { mentorId, skillId, skillName, scheduledAt, durationMins, pointsCost } = req.body;
+    const { mentorId, skillId, skillName, scheduledAt, durationMins, pointsCost, agenda } = req.body;
 
     if (!mentorId || !scheduledAt) return res.status(400).json({ message: 'mentorId and scheduledAt are required' });
 
@@ -33,7 +33,8 @@ exports.requestSession = async (req, res, next) => {
       scheduledAt: new Date(scheduledAt),
       durationMins: durationMins || 60,
       pointsCost: cost,
-      status: 'pending'
+      status: 'pending',
+      agenda: agenda || ''
     });
 
     await session.save();
@@ -48,11 +49,107 @@ exports.requestSession = async (req, res, next) => {
   }
 };
 
+/**
+ * Get Session Details (Secure)
+ * GET /api/sessions/:sessionId
+ */
+exports.getSession = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const { sessionId } = req.params;
+
+    const session = await Session.findById(sessionId)
+      .populate('mentor', 'name email avatarUrl')
+      .populate('learner', 'name email avatarUrl');
+
+    if (!session) return res.status(404).json({ message: 'Session not found' });
+
+    // Security check: only participants can see details
+    const isMentor = session.mentor._id.toString() === userId;
+    const isLearner = session.learner._id.toString() === userId;
+
+    if (!isMentor && !isLearner) return res.status(403).json({ message: 'Not authorized' });
+
+    res.json(session);
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Log Video Start
+ * POST /api/sessions/:sessionId/video-start
+ */
+exports.joinVideo = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const { sessionId } = req.params;
+
+    const session = await Session.findById(sessionId);
+    if (!session) return res.status(404).json({ message: 'Session not found' });
+
+    if (session.mentor.toString() !== userId && session.learner.toString() !== userId) {
+      return res.status(403).json({ message: 'Not authorized' });
+    }
+
+    if (!session.videoStartedAt) {
+      session.videoStartedAt = new Date();
+      await session.save();
+    }
+
+    res.json({ message: 'logged' });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Update Session Details (Agenda for Mentor, Notes for Learner)
+ * PATCH /api/sessions/:sessionId/details
+ */
+exports.updateSessionDetails = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const { sessionId } = req.params;
+    const { agenda, learnerNotes } = req.body;
+
+    const session = await Session.findById(sessionId);
+    if (!session) return res.status(404).json({ message: 'Session not found' });
+
+    // Check permissions
+    const isMentor = session.mentor.toString() === userId;
+    const isLearner = session.learner.toString() === userId;
+
+    if (!isMentor && !isLearner) return res.status(403).json({ message: 'Not allowed' });
+
+    // Mentor can update agenda
+    if (isMentor && agenda !== undefined) {
+      session.agenda = agenda;
+    }
+
+    // Learner can update notes
+    if (isLearner && learnerNotes !== undefined) {
+      session.learnerNotes = learnerNotes;
+    }
+
+    // Learner can ALSO update agenda (collaborative) if desired? 
+    // Requirement said "Mentor can define an agenda... Learner can take notes". 
+    // Let's stick to Mentor-only agenda for now to keep roles distinct, or allow both?
+    // "Mentor can define an agenda" implies ownership. But maybe learner wants to suggest topics.
+    // For now, allow Mentor to set Agenda.
+
+    await session.save();
+    res.json({ message: 'updated', session });
+  } catch (err) {
+    next(err);
+  }
+};
+
 // List sessions for current user
 exports.listMySessions = async (req, res, next) => {
   try {
     const userId = req.user.id;
-    const query = { $or: [ { mentor: userId }, { learner: userId } ] };
+    const query = { $or: [{ mentor: userId }, { learner: userId }] };
     const sessions = await Session.find(query).sort({ scheduledAt: -1 }).populate('mentor', 'name email avatarUrl').populate('learner', 'name email avatarUrl');
     res.json({ sessions });
   } catch (err) {
@@ -60,23 +157,7 @@ exports.listMySessions = async (req, res, next) => {
   }
 };
 
-// Mentor confirms a session
-exports.confirmSession = async (req, res, next) => {
-  try {
-    const userId = req.user.id;
-    const { sessionId } = req.params;
-    const session = await Session.findById(sessionId);
-    if (!session) return res.status(404).json({ message: 'Session not found' });
-    if (session.mentor.toString() !== userId) return res.status(403).json({ message: 'Only mentor can confirm' });
-    if (session.status !== 'requested') return res.status(400).json({ message: 'Session is not in requested state' });
 
-    session.status = 'confirmed';
-    await session.save();
-    res.json({ message: 'confirmed', session });
-  } catch (err) {
-    next(err);
-  }
-};
 
 // Mark session complete and apply credits to mentor, add feedback/rating
 exports.completeSession = async (req, res, next) => {
@@ -97,12 +178,22 @@ exports.completeSession = async (req, res, next) => {
     session.feedback = feedback || session.feedback;
     await session.save();
 
+    // End video tracking
+    if (session.videoStartedAt && !session.videoEndedAt) {
+      session.videoEndedAt = new Date();
+      await session.save();
+    }
+
     // award mentor points (simple rule: mentor earns 80% of cost)
     const mentor = await User.findById(session.mentor);
     if (mentor) {
       const reward = Math.max(0, Math.round((session.pointsCost || 0) * 0.8));
       mentor.points = (mentor.points || 0) + reward;
       await mentor.save();
+
+      // GAMIFICATION: Update Level based on activity
+      const { updateUserLevel } = require('../services/gamificationService');
+      await updateUserLevel(mentor._id);
     }
 
     res.json({ message: 'completed', session });
@@ -151,6 +242,11 @@ exports.submitRating = async (req, res, next) => {
     const { sessionId } = req.params;
     const { rating, feedback } = req.body;
 
+    // Hardened Duplicate Protection
+    const Session = require('../models/Session');
+    const Review = require('../models/Review');
+    const User = require('../models/User');
+
     if (!rating || rating < 1 || rating > 5) return res.status(400).json({ message: 'Rating must be 1-5' });
 
     const session = await Session.findById(sessionId);
@@ -158,60 +254,59 @@ exports.submitRating = async (req, res, next) => {
 
     if (session.learner.toString() !== learnerId) return res.status(403).json({ message: 'Only learner can rate' });
 
+    // Conflict Check: If session already has a rating
+    if (session.rating) {
+      return res.status(409).json({ message: 'Session already rated' });
+    }
+
     session.rating = rating;
     session.feedback = feedback || '';
     await session.save();
 
-    // Update mentor reputation: add rating to their profile and compute average
+    // Create scalable Review document
+    const review = new Review({
+      mentor: session.mentor,
+      learner: learnerId,
+      session: sessionId,
+      rating: rating,
+      feedback: feedback || ''
+    });
+    await review.save();
+
+    // Update mentor reputation (Aggregate only - Scalable)
     const mentor = await User.findById(session.mentor);
     if (mentor) {
-      if (!mentor.reviews) mentor.reviews = [];
-      mentor.reviews.push({ from: learnerId, rating, feedback, createdAt: new Date() });
-      const avg = mentor.reviews.reduce((sum, r) => sum + (r.rating || 0), 0) / mentor.reviews.length;
-      mentor.rating = Math.round(avg * 10) / 10;
-      mentor.reviewsCount = mentor.reviews.length;
+      // Calculate new average using moving average formula or simpler re-calculation if possible.
+      // Since current 'rating' is stored, and 'reviewsCount' is stored.
+      // New Avg = ((Old Avg * Old Count) + New Rating) / (Old Count + 1)
+      const oldRating = mentor.rating || 0;
+      const oldCount = mentor.reviewsCount || 0; // Note: reviewsCount on user might include legacy count
+
+      const newCount = oldCount + 1;
+      const newRating = ((oldRating * oldCount) + Number(rating)) / newCount;
+
+      mentor.rating = Math.round(newRating * 10) / 10;
+      mentor.reviewsCount = newCount;
+
+      // Do NOT push to mentor.reviews array anymore (Scalability Fix)
+
       await mentor.save();
+
+      // GAMIFICATION: Update Level (rating received adds to count)
+      const { updateUserLevel } = require('../services/gamificationService');
+      await updateUserLevel(mentor._id);
     }
 
     res.json({ message: 'rated', session });
   } catch (err) {
+    if (err.code === 11000) { // Catch race condition on unique index if enforced (session unique in Review)
+      return res.status(409).json({ message: 'Session already rated' });
+    }
     next(err);
   }
 };
 
-// Create a new exchange
-exports.createExchange = async (req, res) => {
-  try {
-    const exchange = new Exchange(req.body);
-    await exchange.save();
-    res.status(201).json(exchange);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-};
 
-// Get all exchanges
-exports.getExchanges = async (req, res) => {
-  try {
-    const exchanges = await Exchange.find().populate('participants skills');
-    res.status(200).json(exchanges);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-};
-
-// Update an exchange by ID
-exports.updateExchange = async (req, res) => {
-  try {
-    const exchange = await Exchange.findByIdAndUpdate(req.params.id, req.body, { new: true });
-    if (!exchange) {
-      return res.status(404).json({ message: 'Exchange not found' });
-    }
-    res.status(200).json(exchange);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-};
 
 // Accept a request with meeting link
 exports.acceptRequest = async (req, res) => {
@@ -232,10 +327,11 @@ exports.acceptRequest = async (req, res) => {
       return res.status(400).json({ message: 'Session is not pending' });
     }
 
-    const meetingLink = generateMeetingLink(session._id.toString());
-    
+    const { link, password } = generateMeetingLink(session._id.toString());
+
     session.status = 'accepted';
-    session.meetingLink = meetingLink;
+    session.meetingLink = link;
+    session.meetingPassword = password;
     await session.save();
 
     const populatedSession = await Session.findById(session._id)
@@ -289,19 +385,26 @@ exports.rejectRequest = async (req, res) => {
 // Schedule a session after acceptance
 exports.scheduleSession = async (req, res) => {
   try {
-    const { scheduledAt, durationMins, meetingLink } = req.body;
+    const { scheduledAt, durationMins, meetingLink, agenda } = req.body;
     const updateData = {
       status: 'scheduled',
       scheduledAt: new Date(scheduledAt),
       durationMins: durationMins || 60
     };
-    
+
+    if (agenda) {
+      updateData.agenda = agenda;
+    }
+
     if (meetingLink) {
       updateData.meetingLink = meetingLink;
+      // If manually providing link, assume no password or handled externally
     } else {
-      updateData.meetingLink = generateMeetingLink(req.params.id);
+      const { link, password } = generateMeetingLink(req.params.id);
+      updateData.meetingLink = link;
+      updateData.meetingPassword = password;
     }
-    
+
     const session = await Session.findByIdAndUpdate(req.params.id, updateData, { new: true })
       .populate('mentor', 'name email')
       .populate('learner', 'name email');

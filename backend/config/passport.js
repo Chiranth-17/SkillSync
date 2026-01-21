@@ -2,7 +2,7 @@
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const GitHubStrategy = require('passport-github2').Strategy;
-const User = require('../models/user');
+const User = require('../models/User');
 
 const setupPassport = () => {
   // DEBUG: print env values (only show truncated / present/missing — don't print secrets)
@@ -36,6 +36,13 @@ const setupPassport = () => {
           const email = profile.emails && profile.emails[0] && profile.emails[0].value;
           const avatar = profile.photos && profile.photos[0] && profile.photos[0].value;
           const providerId = profile.id;
+
+          // SECURITY FIX: Strictly require email verification from Google
+          // profile._json.email_verified is the raw claim from Google OIDC
+          if (profile._json.email_verified !== true) {
+            console.error(`Passport: Google login rejected for ${email} - Email not verified.`);
+            return done(null, false, { message: 'Google account email must be verified.' });
+          }
 
           let user = await User.findOne({ 'providers.provider': 'google', 'providers.providerId': providerId });
 

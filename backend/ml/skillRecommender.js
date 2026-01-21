@@ -1,6 +1,6 @@
 // ml/skillRecommender.js
 
-const User = require('../models/user');
+const User = require('../models/User');
 const Skill = require('../models/skill');
 const SkillRecommendationCache = require('../models/SkillRecommendationCache');
 const { buildSkillFeatures } = require('./featureBuilders/skillFeatures');
@@ -62,11 +62,11 @@ const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
  */
 async function recommendSkillsForUser({ userId, limit = 10, skipCache = false }) {
   const requestLimit = Math.min(Math.max(1, limit), 50);
-  
+
   try {
     // Check if ML recommendations are enabled
     const mlEnabled = process.env.ML_SKILL_RECOMMENDATION_ENABLED !== 'false';
-    
+
     if (!mlEnabled) {
       logger.info('ML recommendations disabled, using fallback');
       return await fallbackRecommendations(userId, requestLimit);
@@ -108,7 +108,7 @@ async function recommendSkillsForUser({ userId, limit = 10, skipCache = false })
             fallback: false
           }))
         };
-        
+
         // Store in process cache
         processCache.set(processCacheKey, result, 5 * 60 * 1000); // 5 min
         return result;
@@ -171,10 +171,10 @@ async function computeRecommendations(user, limit) {
 
   const filteredCandidates = candidateSkills.filter(skill => {
     const skillNameLower = skill.name.toLowerCase();
-    
+
     // Allow if user doesn't have it
     if (!userSkillNames.has(skillNameLower)) return true;
-    
+
     // Allow if user has it but not at expert level
     const userSkill = (user.teaches || []).find(s => s.name.toLowerCase() === skillNameLower);
     return userSkill && userSkill.level !== 'expert';
@@ -182,7 +182,7 @@ async function computeRecommendations(user, limit) {
 
   // Compute scores for each candidate
   const scoredSkills = [];
-  
+
   for (const skill of filteredCandidates) {
     try {
       const { features, explanation } = buildSkillFeatures({
@@ -193,10 +193,25 @@ async function computeRecommendations(user, limit) {
 
       const score = computeLinearScore(features);
 
+      // Generate enhanced explanation based on dominant feature
+      // Features: [Tag(0), Category(1), Popularity(2), LearningGap(3), Recency(4), Complementary(5), LevelGap(6)]
+      // Weights: [0.25, 0.15, 0.10, 0.25, 0.10, 0.10, 0.05]
+      let reason = explanation || 'Recommended for you';
+
+      // Heuristic: Find highest weighted contribution
+      const weightedFeatures = features.map((v, i) => v * MODEL_WEIGHTS[i]);
+      const maxIndex = weightedFeatures.indexOf(Math.max(...weightedFeatures));
+
+      if (maxIndex === 0) reason = `Matches your interests in ${skill.tags?.[0] || 'related topics'}`;
+      else if (maxIndex === 1) reason = `Popular in your preferred category: ${skill.category}`;
+      else if (maxIndex === 2) reason = 'Highly popular in the community';
+      else if (maxIndex === 3) reason = 'Great next step for your learning path';
+      else if (maxIndex === 5) reason = 'Complements your existing skills';
+
       scoredSkills.push({
         skillId: skill._id,
         score: Math.max(0, Math.min(1, score)), // Clamp to [0, 1]
-        reason: explanation
+        reason: reason
       });
     } catch (err) {
       logger.warn('Failed to score skill', skill._id, ':', err.message);
@@ -222,7 +237,7 @@ function computeLinearScore(features) {
 
   let score = 0;
   const len = Math.min(features.length, MODEL_WEIGHTS.length);
-  
+
   for (let i = 0; i < len; i++) {
     score += features[i] * MODEL_WEIGHTS[i];
   }
@@ -283,7 +298,7 @@ function normalizePopularityForFallback(popularity) {
 async function clearAllCaches() {
   processCache.clear();
   const dbCleared = await SkillRecommendationCache.deleteMany({});
-  
+
   return {
     processCache: true,
     dbCacheCleared: dbCleared.deletedCount

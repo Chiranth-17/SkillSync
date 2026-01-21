@@ -1,5 +1,5 @@
 // controllers/userSkillController.js
-const User = require('../models/user');
+const User = require('../models/User');
 const Skill = require('../models/skill');
 
 /**
@@ -177,14 +177,19 @@ exports.updateTeachSkill = async (req, res, next) => {
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ message: 'User not found' });
 
-    const teach = user.teaches.id(teachId);
-    if (!teach) return res.status(404).json({ message: 'Teach skill not found' });
+    const skill = user.teaches.id(teachId);
+    if (!skill) return res.status(404).json({ message: 'Skill not found' });
 
-    if (level) teach.level = level;
-    if (description !== undefined) teach.description = description;
+    if (level) {
+      const validLevels = ['beginner', 'intermediate', 'advanced', 'expert'];
+      if (validLevels.includes(level.toLowerCase())) {
+        skill.level = level.toLowerCase();
+      }
+    }
+    if (description !== undefined) skill.description = description;
 
     await user.save();
-    res.json({ teaches: user.teaches });
+    res.json({ message: 'Updated', skill });
   } catch (err) {
     next(err);
   }

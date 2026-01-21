@@ -11,7 +11,7 @@ class NodemailerProvider {
       const host = process.env.EMAIL_HOST || 'smtp.gmail.com';
       const port = parseInt(process.env.EMAIL_PORT || '587', 10);
       const user = process.env.EMAIL_USER;
-      const pass = process.env.EMAIL_PASSWORD;
+      const pass = process.env.EMAIL_PASSWORD || process.env.EMAIL_PASS;
 
       if (!user || !pass) {
         console.warn('Nodemailer: EMAIL_USER or EMAIL_PASSWORD not configured');

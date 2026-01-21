@@ -1,5 +1,5 @@
 const { Session } = require('../models/Session');
-const User = require('../models/user');
+const User = require('../models/User');
 
 async function setupChatHandlers(io, socket) {
   const userId = socket.userId;
@@ -16,9 +16,9 @@ async function setupChatHandlers(io, socket) {
         socket.emit('error', { message: 'Session not found' });
         return;
       }
-
-      const isParticipant = 
-        session.mentor.toString() === userId || 
+               
+      const isParticipant =
+        session.mentor.toString() === userId ||
         session.learner.toString() === userId;
 
       if (!isParticipant) {
@@ -32,10 +32,10 @@ async function setupChatHandlers(io, socket) {
       const user = await User.findById(userId);
       const userName = user ? user.name : 'Unknown User';
 
-      socket.to(roomName).emit('user:joined', { 
-        userId, 
+      socket.to(roomName).emit('user:joined', {
+        userId,
         userName,
-        sessionId 
+        sessionId
       });
 
       console.log(`User ${userId} (${userName}) joined session room: ${roomName}`);
@@ -83,8 +83,8 @@ async function setupChatHandlers(io, socket) {
         return;
       }
 
-      const isParticipant = 
-        session.mentor.toString() === userId || 
+      const isParticipant =
+        session.mentor.toString() === userId ||
         session.learner.toString() === userId;
 
       if (!isParticipant) {
@@ -125,17 +125,17 @@ async function setupChatHandlers(io, socket) {
       const session = await Session.findById(sessionId);
       if (!session) return;
 
-      const isParticipant = 
-        session.mentor.toString() === userId || 
+      const isParticipant =
+        session.mentor.toString() === userId ||
         session.learner.toString() === userId;
 
       if (!isParticipant) return;
 
       const roomName = `session-${sessionId}`;
-      socket.to(roomName).emit('typing', { 
-        userId, 
+      socket.to(roomName).emit('typing', {
+        userId,
         isTyping: true,
-        sessionId 
+        sessionId
       });
     } catch (err) {
       console.error('Error in typing:start:', err);
@@ -149,17 +149,17 @@ async function setupChatHandlers(io, socket) {
       const session = await Session.findById(sessionId);
       if (!session) return;
 
-      const isParticipant = 
-        session.mentor.toString() === userId || 
+      const isParticipant =
+        session.mentor.toString() === userId ||
         session.learner.toString() === userId;
 
       if (!isParticipant) return;
 
       const roomName = `session-${sessionId}`;
-      socket.to(roomName).emit('typing', { 
-        userId, 
+      socket.to(roomName).emit('typing', {
+        userId,
         isTyping: false,
-        sessionId 
+        sessionId
       });
     } catch (err) {
       console.error('Error in typing:stop:', err);

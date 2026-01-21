@@ -1,4 +1,4 @@
-const User = require('../models/user');
+const User = require('../models/User');
 const RVVerification = require('../models/RVVerification');
 const { sendRVVerificationOTP } = require('../services/emailService');
 
@@ -25,21 +25,36 @@ exports.startVerification = async (req, res, next) => {
     const userId = req.user.id;
     const { rvEmail, rvLoginId, idCardImageUrl } = req.body;
 
-    if (!rvEmail || !idCardImageUrl) {
-      return res.status(400).json({ 
-        message: 'RV email and ID card image are required' 
+    if (!rvEmail) {
+      return res.status(400).json({
+        message: 'RV email is required'
       });
     }
 
     if (!RV_EMAIL_REGEX.test(rvEmail)) {
-      return res.status(400).json({ 
-        message: 'Invalid RV College email domain. Please use @rvce.edu.in, @rv.edu.in, or @ms.rvce.edu.in' 
+      return res.status(400).json({
+        message: 'Invalid RV College email domain. Please use @rvce.edu.in, @rv.edu.in, or @ms.rvce.edu.in'
       });
     }
 
     const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
+    }
+
+    // 1. Google OAuth Cross-Verification
+    // MOVED TO verifyOTP: We now check this at the final step to allow OTP sending first.
+
+    // 2. Uniqueness Check
+    // Check if this RV email is already verified by ANOTHER user
+    const existingVerified = await User.findOne({
+      collegeEmail: rvEmail.toLowerCase().trim(),
+      isVerified: true,
+      _id: { $ne: userId }
+    });
+
+    if (existingVerified) {
+      return res.status(409).json({ message: 'This RV email is already verified by another account.' });
     }
 
     // Generate 6-digit OTP and set 10-minute expiration
@@ -63,14 +78,23 @@ exports.startVerification = async (req, res, next) => {
       { upsert: true, new: true }
     );
 
-    sendRVVerificationOTP({
+    const emailResult = await sendRVVerificationOTP({
       userName: user.name,
       rvEmail: rvEmail.toLowerCase().trim(),
       otp,
       expiryMinutes: 10
-    }).catch(err => {
-      console.error('Failed to send RV verification OTP email:', err.message);
     });
+
+    if (!emailResult.success) {
+      // If email fails, don't leave the user hanging.
+      // We should probably rollback the verification creation or just let them try again.
+      // Since upsert is safe, we can just error out.
+      console.error('Failed to send RV verification OTP email:', emailResult.error);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to send OTP email. Please check your email address or try again later.'
+      });
+    }
 
     res.status(200).json({
       success: true,
@@ -108,42 +132,120 @@ exports.verifyOTP = async (req, res, next) => {
     const verification = await RVVerification.findOne({ userId });
 
     if (!verification) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        message: 'No pending verification found. Please start verification first.' 
+        message: 'No pending verification found. Please start verification first.'
       });
     }
 
     // Validate OTP matches (plain text comparison - TODO: use bcrypt for production)
     if (verification.otp !== otp.trim()) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: 'Invalid OTP' 
+        message: 'Invalid OTP'
       });
     }
 
     // Check if OTP has expired (10-minute window)
     if (new Date() > verification.otpExpiresAt) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: 'OTP has expired. Please request a new one.' 
+        message: 'OTP has expired. Please request a new one.'
+      });
+    }
+
+    // 1. Google OAuth Cross-Verification (Strict Check)
+    // User must be authenticated via Google, and that Google email must match the RV email
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const googleProvider = (user.providers || []).find(p => p.provider === 'google');
+
+    // Normalize emails for comparison
+    const normalizedRvEmail = verification.rvEmail.toLowerCase().trim();
+    const normalizedGoogleEmail = googleProvider ? googleProvider.email.toLowerCase().trim() : '';
+    const normalizedUserEmail = user.email.toLowerCase().trim();
+
+    // Allow verification if EITHER:
+    // 1. The Google Provider email matches (Standard path)
+    // 2. The User's primary email matches (Fallback for when provider data is missing)
+    const isMatch = (googleProvider && normalizedGoogleEmail === normalizedRvEmail) ||
+      (normalizedUserEmail === normalizedRvEmail);
+
+    if (!isMatch) {
+      return res.status(403).json({
+        success: false,
+        message: 'Security Verification Failed: You must be logged in with the specific Google Account matching your RV email to verify it.'
       });
     }
 
     // Mark as verified and clear OTP data for security
+    // Set Expiry to 6 months (180 days)
+    const expiresAt = new Date(Date.now() + 180 * 24 * 60 * 60 * 1000);
+
     verification.emailVerified = true;
     verification.status = 'verified';
     verification.verifiedAt = new Date();
+    verification.expiresAt = expiresAt;
     verification.otp = undefined;
     verification.otpExpiresAt = undefined;
     await verification.save();
+
+    // AUTO-VERIFICATION: Update User Profile immediately
+    // const user = await User.findById(userId); // Already fetched above
+    if (user) {
+      user.isVerified = true;
+      user.collegeEmail = verification.rvEmail;
+      user.rvProfile = user.rvProfile || {};
+      user.rvProfile.verifiedAt = new Date();
+      user.rvProfile.expiresAt = expiresAt;
+      await user.save();
+    }
 
     res.status(200).json({
       success: true,
       emailVerified: true,
       status: 'verified',
       verifiedAt: verification.verifiedAt,
-      message: 'RV College verification successful!'
+      expiresAt: verification.expiresAt,
+      message: 'RV College verification successful! You have been verified.'
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Update RV Profile Details (Branch & Year)
+ * Only allowed for verified users
+ */
+exports.updateRVProfile = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const { branch, year } = req.body;
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    if (!user.isVerified) {
+      return res.status(403).json({ message: 'Only RV verified users can update this section.' });
+    }
+
+    if (branch) user.rvProfile.branch = branch.trim();
+    if (year) {
+      const parsedYear = parseInt(year, 10);
+      if (!isNaN(parsedYear) && parsedYear >= 1 && parsedYear <= 5) {
+        user.rvProfile.year = parsedYear;
+      }
+    }
+
+    await user.save();
+
+    res.json({
+      success: true,
+      rvProfile: user.rvProfile
     });
   } catch (err) {
     next(err);
@@ -186,6 +288,13 @@ exports.getStatus = async (req, res, next) => {
       response.rvLoginId = verification.rvLoginId;
       response.idCardImageUrl = verification.idCardImageUrl;
       response.verifiedAt = verification.verifiedAt;
+      response.expiresAt = verification.expiresAt;
+
+      // Fetch user to get current profile details (which might have been updated separately)
+      const user = await User.findById(userId);
+      if (user && user.rvProfile) {
+        response.rvProfile = user.rvProfile;
+      }
     } else if (verification.status === 'pending') {
       response.rvEmail = verification.rvEmail;
       response.idCardImageUrl = verification.idCardImageUrl;
@@ -200,77 +309,4 @@ exports.getStatus = async (req, res, next) => {
   }
 };
 
-/**
- * Admin endpoint to review and approve/reject RV verification requests
- * Validates that email verification was completed before allowing approval
- * Updates status and sets appropriate timestamp (verifiedAt or rejectedAt)
- * 
- * @route POST /api/rv-verification/admin-review
- * @access Admin only (requires admin role)
- * @param {Object} req.body - Request body
- * @param {string} req.body.userId - ID of user being reviewed
- * @param {string} req.body.status - New status: 'verified' or 'rejected'
- * @param {string} req.body.notes - Optional admin notes (required for rejection)
- * @returns {Object} 200 - Review successful with updated verification data
- * @returns {Object} 400 - Validation error or email not verified
- * @returns {Object} 404 - Verification record not found
- */
-exports.adminReview = async (req, res, next) => {
-  try {
-    const { userId, status, notes } = req.body;
 
-    if (!userId || !status) {
-      return res.status(400).json({ 
-        message: 'userId and status are required' 
-      });
-    }
-
-    if (!['verified', 'rejected'].includes(status)) {
-      return res.status(400).json({ 
-        message: 'Status must be either "verified" or "rejected"' 
-      });
-    }
-
-    const verification = await RVVerification.findOne({ userId });
-
-    if (!verification) {
-      return res.status(404).json({ 
-        message: 'No verification record found for this user' 
-      });
-    }
-
-    if (status === 'verified' && !verification.emailVerified) {
-      return res.status(400).json({ 
-        message: 'Cannot verify: user has not completed email verification' 
-      });
-    }
-
-    verification.status = status;
-    verification.notes = notes || verification.notes;
-
-    // Set appropriate timestamp and clear the opposite one
-    // This ensures clean state transitions between verified/rejected
-    if (status === 'verified') {
-      verification.verifiedAt = new Date();
-      verification.rejectedAt = undefined;
-    } else if (status === 'rejected') {
-      verification.rejectedAt = new Date();
-      verification.verifiedAt = undefined;
-    }
-
-    await verification.save();
-
-    res.status(200).json({
-      success: true,
-      verification: {
-        userId: verification.userId,
-        status: verification.status,
-        notes: verification.notes,
-        verifiedAt: verification.verifiedAt,
-        rejectedAt: verification.rejectedAt
-      }
-    });
-  } catch (err) {
-    next(err);
-  }
-};

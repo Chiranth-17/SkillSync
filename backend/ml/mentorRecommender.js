@@ -1,6 +1,6 @@
 // ml/mentorRecommender.js
 
-const User = require('../models/user');
+const User = require('../models/User');
 const Skill = require('../models/skill');
 const { Session } = require('../models/Session');
 const MentorRecommendationCache = require('../models/MentorRecommendationCache');
@@ -55,10 +55,10 @@ const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
  */
 async function recommendMentors({ userId, skillIds = [], limit = 10, skipCache = false }) {
   const requestLimit = Math.min(Math.max(1, limit), 50);
-  
+
   try {
     const mlEnabled = process.env.ML_MENTOR_RECOMMENDATION_ENABLED !== 'false';
-    
+
     if (!mlEnabled) {
       logger.info('ML mentor recommendations disabled, using fallback');
       return await fallbackMentorRecommendations(userId, skillIds, requestLimit);
@@ -120,7 +120,7 @@ async function recommendMentors({ userId, skillIds = [], limit = 10, skipCache =
     // Compute fresh recommendations for cache misses
     if (skillsNeedingComputation.length > 0) {
       logger.info('Computing fresh mentor recommendations for', skillsNeedingComputation.length, 'skills');
-      
+
       for (const skillId of skillsNeedingComputation) {
         const freshRecs = await computeMentorRecommendations(user, skillId, requestLimit * 2);
         allRecommendations.push(...freshRecs);
@@ -196,7 +196,7 @@ async function computeMentorRecommendations(user, skillId, limit) {
 
     // Score each mentor
     const scoredMentors = [];
-    
+
     for (const mentor of candidateMentors) {
       try {
         // Skip if mentor is the same as user
@@ -245,7 +245,7 @@ function computeLinearScore(features) {
 
   let score = 0;
   const len = Math.min(features.length, MODEL_WEIGHTS.length);
-  
+
   for (let i = 0; i < len; i++) {
     score += features[i] * MODEL_WEIGHTS[i];
   }
@@ -301,10 +301,10 @@ async function fallbackMentorRecommendations(userId, skillIds, limit) {
     const items = [];
     for (const mentor of mentors) {
       for (const skill of skills) {
-        const teaches = mentor.teaches.find(t => 
+        const teaches = mentor.teaches.find(t =>
           t.name.toLowerCase().includes(skill.name.toLowerCase())
         );
-        
+
         if (teaches) {
           items.push({
             mentorId: mentor._id,
@@ -355,7 +355,7 @@ function normalizeFallbackRating(rating) {
 async function clearAllCaches() {
   processCache.clear();
   const dbCleared = await MentorRecommendationCache.deleteMany({});
-  
+
   return {
     processCache: true,
     dbCacheCleared: dbCleared.deletedCount

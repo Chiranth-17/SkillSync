@@ -23,7 +23,7 @@ async function getSkillRecommendations(req, res, next) {
   try {
     // Determine user ID: prefer authenticated user, fallback to query param
     let userId = null;
-    
+
     if (req.user && req.user.id) {
       userId = req.user.id;
     } else if (req.query.userId) {
@@ -55,22 +55,72 @@ async function getSkillRecommendations(req, res, next) {
     // Check if ML is disabled via environment variable
     const mlEnabled = process.env.ML_SKILL_RECOMMENDATION_ENABLED !== 'false';
 
+    // HYDRATION & VALIDATION STEP
+    const Skill = require('../models/skill');
+    const recommendedIds = recommendations.items.map(r => r.skillId);
+
+    // Fetch real skill details
+    const validSkills = await Skill.find({ _id: { $in: recommendedIds } })
+      .select('name category tags popularity')
+      .lean();
+
+    const skillMap = new Map(validSkills.map(s => [s._id.toString(), s]));
+
+    // Merge scores with real data
+    const hydratedItems = recommendations.items
+      .map(rec => {
+        const skill = skillMap.get(rec.skillId.toString());
+        if (!skill) return null;
+
+        return {
+          skillId: skill._id,
+          name: skill.name,
+          category: skill.category,
+          score: rec.score,
+          reason: rec.reason,
+          fallback: rec.fallback || false
+        };
+      })
+      .filter(Boolean);
+
+    // FALLBACK IF EMPTY
+    if (hydratedItems.length === 0) {
+      logger.warn('No valid skill recommendations found. Using fallback.');
+
+      const popularSkills = await Skill.find({})
+        .sort({ popularity: -1 })
+        .limit(limit)
+        .select('name category tags popularity')
+        .lean();
+
+      const fallbackItems = popularSkills.map(s => ({
+        skillId: s._id,
+        name: s.name,
+        category: s.category,
+        score: s.popularity ? Math.min(1, Math.log10(s.popularity + 1) / 4) : 0.5,
+        reason: 'Popular in community',
+        fallback: true
+      }));
+
+      hydratedItems.push(...fallbackItems);
+    }
+
     // Return consistent response shape
     return res.status(200).json({
       success: true,
       userId: recommendations.userId,
-      items: recommendations.items,
+      items: hydratedItems,
       meta: {
         limit,
-        count: recommendations.items.length,
+        count: hydratedItems.length,
         mlEnabled,
-        fallback: recommendations.items.length > 0 ? recommendations.items[0].fallback : false
+        fallback: hydratedItems.some(i => i.fallback)
       }
     });
 
   } catch (error) {
     logger.error('Error in getSkillRecommendations:', error.message);
-    
+
     // Return graceful error with empty recommendations
     return res.status(500).json({
       success: false,
@@ -150,9 +200,11 @@ async function clearRecommendationCache(req, res, next) {
  */
 async function getMentorRecommendations(req, res, next) {
   try {
+    const { getMentorRecommendationsAI } = require('../services/mlService');
+    const User = require('../models/User'); // Ensure User model is available
+
     // Determine user ID
     let userId = null;
-    
     if (req.user && req.user.id) {
       userId = req.user.id;
     } else if (req.query.userId) {
@@ -165,57 +217,102 @@ async function getMentorRecommendations(req, res, next) {
       });
     }
 
-    // Parse skillIds (comma-separated)
-    const skillIdsParam = req.query.skillIds || req.query.skillId || '';
-    const skillIds = skillIdsParam
-      .split(',')
-      .map(id => id.trim())
-      .filter(id => id.length > 0);
-
-    if (skillIds.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'At least one skillId is required (provide as comma-separated list)'
-      });
-    }
-
     // Parse and validate limit
     const rawLimit = parseInt(req.query.limit, 10);
     const limit = isNaN(rawLimit) ? 10 : Math.min(Math.max(1, rawLimit), 50);
 
-    // Parse skipCache flag
-    const skipCache = req.query.skipCache === 'true';
+    // Fetch Target User
+    const targetUser = await User.findById(userId);
+    if (!targetUser) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
 
-    logger.debug('Getting mentor recommendations for user', userId, 'skills:', skillIds, 'limit:', limit);
+    // Fetch Candidates (All users who teach something, excluding self)
+    // In production, optimize this query to only fetch relevant candidates if needed
+    const candidates = await User.find({
+      _id: { $ne: userId },
+      'teaches.0': { $exists: true } // Users who teach at least one skill
+    }).select('name teaches learns');
 
-    // Call ML recommender
-    const recommendations = await recommendMentors({
-      userId,
-      skillIds,
-      limit,
-      skipCache
-    });
+    logger.debug('Getting AI mentor recommendations for', userId, 'Candidates count:', candidates.length);
 
-    // Check if ML is disabled
-    const mlEnabled = process.env.ML_MENTOR_RECOMMENDATION_ENABLED !== 'false';
+    // Call Python ML Service
+    const mlResults = await getMentorRecommendationsAI(targetUser, candidates, limit);
 
-    // Return consistent response shape
+    // HYDRATION & VALIDATION STEP
+    // The ML service might return IDs, but we must ensure they strictly exist in our current DB
+    // and fetch their latest profile data (avatar, rating, etc.)
+    const recommendedIds = mlResults.map(r => r.mentorId || r.user_id);
+
+    const validMentors = await User.find({ _id: { $in: recommendedIds } })
+      .select('name avatarUrl rating reviewsCount teaches bio title occupation location')
+      .lean();
+
+    const mentorMap = new Map(validMentors.map(m => [m._id.toString(), m]));
+
+    // Merge ML scores with real DB data
+    const finalResults = mlResults
+      .map(rec => {
+        const uid = rec.mentorId || rec.user_id;
+        const mentor = mentorMap.get(uid);
+        if (!mentor) return null; // Skip if user not found in DB
+
+        return {
+          mentorId: mentor._id,
+          name: mentor.name,
+          avatarUrl: mentor.avatarUrl,
+          title: mentor.title || 'Mentor',
+          score: rec.score || 0,
+          reason: rec.reason || 'Recommended Match',
+          matchPercentage: Math.round((rec.score || 0) * 100)
+        };
+      })
+      .filter(Boolean); // Remove nulls
+
+    // FALLBACK IF VALIDATION REMOVES ALL RECOMMENDATIONS
+    // This happens if the ML service indexes are out of sync with the current DB (e.g. after reseeding)
+    if (finalResults.length === 0) {
+      logger.warn('ML recommendations invalid or stale. Using DB fallback.');
+
+      const fallbackMentors = await User.find({
+        _id: { $ne: userId },
+        'teaches.0': { $exists: true } // Must teach something
+      })
+        .sort({ rating: -1, reviewsCount: -1 })
+        .limit(limit)
+        .select('name avatarUrl rating reviewsCount teaches bio title occupation location')
+        .lean();
+
+      const fallbackItems = fallbackMentors.map(m => ({
+        mentorId: m._id,
+        name: m.name,
+        avatarUrl: m.avatarUrl,
+        title: m.title || 'Mentor',
+        score: (m.rating || 3) / 5, // Normalize rating to 0-1
+        reason: 'Highly Rated Mentor',
+        matchPercentage: Math.round(((m.rating || 3) / 5) * 100),
+        fallback: true
+      }));
+
+      finalResults.push(...fallbackItems);
+    }
+
+    // Return response
     return res.status(200).json({
       success: true,
-      userId: recommendations.userId,
-      skillIds: recommendations.skillIds,
-      items: recommendations.items,
+      userId: userId,
+      items: finalResults,
       meta: {
         limit,
-        count: recommendations.items.length,
-        mlEnabled,
-        fallback: recommendations.items.length > 0 ? recommendations.items[0].fallback : false
+        count: finalResults.length,
+        mlEnabled: true,
+        source: 'python-microservice-validated'
       }
     });
 
   } catch (error) {
     logger.error('Error in getMentorRecommendations:', error.message);
-    
+
     return res.status(500).json({
       success: false,
       message: 'Failed to generate mentor recommendations',

@@ -1,6 +1,6 @@
 // ml/sessionSuccessModel.js
 
-const User = require('../models/user');
+const User = require('../models/User');
 const Skill = require('../models/skill');
 const { Session } = require('../models/Session');
 const SessionSuccessModelParams = require('../models/SessionSuccessModelParams');
@@ -275,7 +275,7 @@ async function loadModel() {
   // Load from database
   try {
     const dbModel = await SessionSuccessModelParams.getActiveModel();
-    
+
     if (dbModel && dbModel.weights && dbModel.weights.length > 0) {
       cachedModel = {
         weights: dbModel.weights,

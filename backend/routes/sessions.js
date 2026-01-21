@@ -10,8 +10,13 @@ router.post('/', auth, sessionController.requestSession);
 // Get sessions for current user
 router.get('/me', auth, sessionController.listMySessions);
 
-// Mentor confirms a requested session
-router.put('/:sessionId/confirm', auth, sessionController.confirmSession);
+// Get specific session details
+router.get('/:sessionId', auth, sessionController.getSession);
+
+// Log video start
+router.post('/:sessionId/video-start', auth, sessionController.joinVideo);
+
+
 
 // Mark a session completed (mentor or learner)
 router.put('/:sessionId/complete', auth, sessionController.completeSession);
@@ -22,14 +27,10 @@ router.post('/:sessionId/rate', auth, sessionController.submitRating);
 // Cancel a session
 router.delete('/:sessionId', auth, sessionController.cancelSession);
 
-// Route to create a new exchange
-router.post('/exchanges', auth, sessionController.createExchange);
+// Update session details (agenda, notes)
+router.patch('/:sessionId/details', auth, sessionController.updateSessionDetails);
 
-// Route to get all exchanges
-router.get('/exchanges', auth, sessionController.getExchanges);
 
-// Route to update an exchange by ID
-router.put('/exchanges/:id', auth, sessionController.updateExchange);
 
 // Route to accept a request
 router.put('/:id/accept', auth, sessionController.acceptRequest);

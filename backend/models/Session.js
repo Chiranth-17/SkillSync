@@ -24,34 +24,15 @@ const SessionSchema = new mongoose.Schema({
   feedback: { type: String },
   rating: { type: Number, min: 1, max: 5 },
   meetingLink: { type: String, default: null },
+  meetingPassword: { type: String, default: null },
+  agenda: { type: String, default: '' },
+  learnerNotes: { type: String, default: '' }, // Private notes for the learner
+  videoStartedAt: { type: Date },
+  videoEndedAt: { type: Date },
   createdAt: { type: Date, default: Date.now }
 });
 
-const ExchangeSchema = new mongoose.Schema({
-  participants: [
-    {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      required: true
-    }
-  ],
-  skills: [
-    {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Skill',
-      required: true
-    }
-  ],
-  status: {
-    type: String,
-    enum: ['pending', 'accepted', 'completed', 'cancelled'],
-    default: 'pending'
-  },
-  createdAt: {
-    type: Date,
-    default: Date.now
-  }
-});
+
 
 const ChatMessageSchema = new mongoose.Schema({
   sender: {
@@ -76,6 +57,5 @@ const ChatMessageSchema = new mongoose.Schema({
 
 module.exports = {
   Session: mongoose.models.Session || mongoose.model('Session', SessionSchema),
-  Exchange: mongoose.models.Exchange || mongoose.model('Exchange', ExchangeSchema),
   ChatMessage: mongoose.models.ChatMessage || mongoose.model('ChatMessage', ChatMessageSchema)
 };

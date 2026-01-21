@@ -4,7 +4,7 @@ const mongoose = require('mongoose');
 const SkillSchema = new mongoose.Schema({
   skillRef: { type: mongoose.Schema.Types.ObjectId, ref: 'Skill', required: false }, // optional link to catalog
   name: { type: String, required: true, trim: true },
-  level: { type: String, enum: ['beginner','intermediate','advanced','expert'], default: 'beginner' },
+  level: { type: String, enum: ['beginner', 'intermediate', 'advanced', 'expert'], default: 'beginner' },
   description: { type: String, default: '' },
   endorsementsCount: { type: Number, default: 0 }, // endorsements for this user-skill
   endorsements: [{ // who endorsed and optional comment
@@ -28,10 +28,16 @@ const UserSchema = new mongoose.Schema({
   teaches: [SkillSchema], // skills user can teach
   learns: [SkillSchema],  // skills user wants to learn
   points: { type: Number, default: 100 },
+  karma: { type: Number, default: 0 }, // DEPRECATED: Do not use. Use 'level' for reputation.
+  level: {
+    type: String,
+    enum: ['Novice', 'Apprentice', 'Master', 'Grandmaster'],
+    default: 'Novice'
+  },
   rating: { type: Number, default: 5 },
   reviewsCount: { type: Number, default: 0 },
   providers: [{ provider: String, providerId: String, email: String, avatarUrl: String }],
-  badges: [BadgeSchema], // earned badges
+  badges: [BadgeSchema], // DEPRECATED: Do not use.
   createdAt: { type: Date, default: Date.now },
   lastSeen: { type: Date, default: Date.now },
   collegeId: {
@@ -61,7 +67,7 @@ const UserSchema = new mongoose.Schema({
     type: String,
     required: false,
     unique: false,
-    match: /.+@.+\.edu$/ // Ensure the email ends with .edu
+    match: /.+@.+\.(edu|ac\.[a-z]{2}|edu\.[a-z]{2}|fr|jp|mx|ie|it|sg)$/ // Academic domains regex
   },
   isVerified: {
     type: Boolean,
@@ -70,6 +76,20 @@ const UserSchema = new mongoose.Schema({
   verificationToken: {
     type: String,
     default: null
+  },
+  resetPasswordToken: {
+    type: String,
+    default: null
+  },
+  resetPasswordExpires: {
+    type: Date,
+    default: null
+  },
+  rvProfile: {
+    branch: { type: String, trim: true },
+    year: { type: Number, min: 1, max: 5 },
+    verifiedAt: { type: Date },
+    expiresAt: { type: Date }
   },
   bio: {
     type: String,
@@ -126,21 +146,27 @@ const UserSchema = new mongoose.Schema({
       createdAt: { type: Date, default: Date.now }
     }
   ],
-  role: {
+  roadmapGoal: {
     type: String,
-    enum: ['user', 'admin'],
-    default: 'user'
-  }
+    default: 'full-stack' // Default roadmap
+  },
+  // Security Question (Opt-in Password Recovery)
+  securityQuestion: { type: String },
+  securityAnswerHash: { type: String },
+  securityAnswerAttempts: { type: Number, default: 0 },
+  securityLockoutUntil: { type: Date, default: null },
+
+
 }, {
   toJSON: { virtuals: true },
   toObject: { virtuals: true }
 });
 
-UserSchema.virtual('skillsOffered').get(function() {
+UserSchema.virtual('skillsOffered').get(function () {
   return this.teaches;
 });
 
-UserSchema.virtual('skillsWanted').get(function() {
+UserSchema.virtual('skillsWanted').get(function () {
   return this.learns;
 });
 

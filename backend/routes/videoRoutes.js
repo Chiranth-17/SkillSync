@@ -6,12 +6,15 @@ const videoController = require('../controllers/videoController');
 const authMiddleware = require('../middleware/auth');
 
 // Configure multer with video storage and limits
-const upload = multer({ 
+const upload = multer({
   storage: videoStorage,
   limits: { fileSize: 100 * 1024 * 1024 } // 100 MB
 });
 
-// All routes protected
+// GET /api/user/demo-videos/feed (Public)
+router.get('/feed', videoController.getVideoFeed);
+
+// All other routes protected
 router.use(authMiddleware);
 
 // POST /api/user/demo-videos/upload

@@ -3,7 +3,7 @@ const path = require('path');
 
 function getEmailProvider() {
   const provider = process.env.EMAIL_PROVIDER || 'sendgrid';
-  
+
   if (provider === 'sendgrid') {
     return require('./emailProviders/sendgridProvider');
   } else if (provider === 'nodemailer') {
@@ -37,7 +37,7 @@ async function sendSessionRequest(mentor, learner, session) {
 
     const provider = getEmailProvider();
     const template = loadTemplate('sessionRequest');
-    
+
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     const sessionDate = new Date(session.scheduledAt).toLocaleString('en-US', {
       weekday: 'long',
@@ -86,7 +86,7 @@ async function sendSessionScheduled(mentor, learner, session) {
 
     const provider = getEmailProvider();
     const template = loadTemplate('sessionScheduled');
-    
+
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     const sessionDate = new Date(session.scheduledAt).toLocaleString('en-US', {
       weekday: 'long',
@@ -149,7 +149,7 @@ async function sendSessionReminder(user, session) {
 
     const provider = getEmailProvider();
     const template = loadTemplate('sessionReminder');
-    
+
     const sessionDate = new Date(session.scheduledAt).toLocaleString('en-US', {
       weekday: 'long',
       year: 'numeric',
@@ -189,6 +189,7 @@ async function sendSessionReminder(user, session) {
 async function sendRVVerificationOTP(data) {
   try {
     const isEnabled = process.env.EMAIL_ENABLED !== 'false';
+
     if (!isEnabled) {
       console.log('Email disabled: Skipping RV verification OTP email');
       return { success: true, skipped: true };
@@ -196,7 +197,7 @@ async function sendRVVerificationOTP(data) {
 
     const provider = getEmailProvider();
     const template = loadTemplate('rvVerificationOTP');
-    
+
     const html = replaceVariables(template, {
       userName: data.userName || 'User',
       rvEmail: data.rvEmail,

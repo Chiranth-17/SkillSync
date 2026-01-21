@@ -19,7 +19,7 @@ const RVVerificationSchema = new mongoose.Schema({
   },
   idCardImageUrl: {
     type: String,
-    required: true
+    required: false // DEPRECATED: No longer required as of Jan 2026
   },
   otp: {
     type: String
@@ -45,6 +45,9 @@ const RVVerificationSchema = new mongoose.Schema({
   },
   notes: {
     type: String
+  },
+  expiresAt: {
+    type: Date
   }
 }, {
   timestamps: true

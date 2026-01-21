@@ -4,7 +4,16 @@ const express = require('express');
 const cors = require('cors');
 const passport = require('passport');
 const cookieParser = require('cookie-parser');
+const http = require('http');
+const { Server } = require('socket.io');
+
+// Database and Models
 const connectDB = require('./config/db');
+const Session = require('./models/Session');
+const User = require('./models/User');
+
+// Configuration
+const setupPassport = require('./config/passport');
 
 // Routes
 const authRoutes = require('./routes/auth');
@@ -20,10 +29,7 @@ const userRoutes = require('./routes/userRoutes');
 const mlRoutes = require('./routes/mlRoutes');
 const analyticsRoutes = require('./routes/analyticsRoutes');
 const rvVerificationRoutes = require('./routes/rvVerificationRoutes');
-
 const app = express();
-const http = require('http');
-const { Server } = require('socket.io');
 
 // ----------------------------------------------
 // CONNECT TO DATABASE
@@ -50,7 +56,7 @@ app.use(
 );
 
 // Passport OAuth
-const setupPassport = require('./config/passport');
+// Passport OAuth
 setupPassport();
 app.use(passport.initialize());
 
@@ -73,6 +79,7 @@ app.use('/api/user', userRoutes); // For /api/user/profile
 app.use('/api/ml', mlRoutes); // ML-powered skill recommendations
 app.use('/api/ml', analyticsRoutes); // ML analytics and predictions
 app.use('/api/rv-verification', rvVerificationRoutes); // RV College verification
+app.use('/api/roadmaps', require('./routes/roadmapRoutes')); // Dynamic Roadmaps
 
 // ----------------------------------------------
 // SOCKET.IO (authenticated real-time chat)
@@ -80,16 +87,15 @@ app.use('/api/rv-verification', rvVerificationRoutes); // RV College verificatio
 const server = http.createServer(app);
 const corsOrigin = process.env.SOCKET_IO_CORS_ORIGIN || 'http://localhost:5173';
 const io = new Server(server, {
-  cors: { 
-    origin: corsOrigin.split(',').map(o => o.trim()), 
-    methods: ["GET","POST"], 
-    credentials: true 
+  cors: {
+    origin: corsOrigin.split(',').map(o => o.trim()),
+    methods: ["GET", "POST"],
+    credentials: true
   }
 });
 
 const authenticateSocket = require('./utils/socketAuth');
 const setupChatHandlers = require('./sockets/chatHandler');
-
 io.use(authenticateSocket);
 
 io.on('connection', (socket) => {

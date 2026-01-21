@@ -1,6 +1,6 @@
 // controllers/skillController.js
 const Skill = require('../models/skill');
-const User = require('../models/user');
+const User = require('../models/User');
 const Category = require('../models/Category'); // <-- new: ensure categories exist
 const axios = require('axios');
 

@@ -64,4 +64,15 @@ router.post('/send-verification-email', authController.sendVerificationEmail);
 // Route to verify email
 router.get('/verify-email', authController.verifyEmail);
 
+// Forgot Password
+router.post('/forgot-password', authController.forgotPassword);
+
+// Reset Password
+router.post('/reset-password', authController.resetPassword);
+
+// Security Question Flow
+router.post('/recovery-check', authController.getRecoveryCheck);
+router.post('/reset-password-question', authController.resetPasswordViaQuestion);
+router.put('/security-settings', authMiddleware, authController.updateSecuritySettings);
+
 module.exports = router;

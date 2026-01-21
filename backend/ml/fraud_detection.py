@@ -14,13 +14,18 @@ def fetch_user_activity():
         'skills_uploaded': [10, 1, 20, 0, 15],
     })
 
-def detect_fraud():
+def detect_fraud(user_data):
     """
     Detect suspicious user activity using Isolation Forest.
+    user_data: List of dictionaries containing 'login_count', 'messages_sent', 'skills_uploaded', 'user_id'
     """
-    data = fetch_user_activity()
+    if not user_data:
+        return []
+        
+    data = pd.DataFrame(user_data)
+    
     if data.empty:
-        raise ValueError("No user activity data available")
+        return []
 
     # Use relevant features for fraud detection
     features = data[['login_count', 'messages_sent', 'skills_uploaded']]
@@ -30,8 +35,10 @@ def detect_fraud():
     data['fraud_score'] = model.fit_predict(features)
 
     # Flag suspicious users
+    data['fraud_score'] = model.fit_predict(features)
     suspicious_users = data[data['fraud_score'] == -1]
-    return suspicious_users[['user_id', 'fraud_score']]
+    
+    return suspicious_users[['user_id', 'fraud_score']].to_dict(orient='records')
 
 # Example usage
 if __name__ == "__main__":

@@ -42,14 +42,14 @@ const router = express.Router();
  */
 function optionalAuth(req, res, next) {
   const jwt = require('jsonwebtoken');
-  
+
   // Try to extract token
   let token = null;
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith('Bearer ')) {
     token = authHeader.split(' ')[1];
   }
-  
+
   // Fallback to cookie
   if (!token && req.cookies && req.cookies.accessToken) {
     token = req.cookies.accessToken;
@@ -125,6 +125,8 @@ router.get('/recommendations/skills', optionalAuth, getSkillRecommendations);
  */
 router.get('/recommendations/mentors', optionalAuth, getMentorRecommendations);
 
+
+
 /**
  * GET /ml/recommendations/stats
  * 
@@ -137,10 +139,9 @@ router.get('/recommendations/mentors', optionalAuth, getMentorRecommendations);
  *     stats: { processCache: {...}, modelWeights: [...], cacheTtlMs: 86400000 }
  *   }
  * 
- * Access: Public (consider adding auth for production)
- * TODO: Add admin-only auth middleware
+ * Access: Admin only
  */
-router.get('/recommendations/stats', getRecommendationStats);
+// router.get('/recommendations/stats', adminAuth, getRecommendationStats);
 
 /**
  * POST /ml/recommendations/clear-cache
@@ -155,10 +156,9 @@ router.get('/recommendations/stats', getRecommendationStats);
  *     result: { processCache: true, dbCacheCleared: 1234 }
  *   }
  * 
- * Access: Public (consider adding admin-only auth for production)
- * TODO: Add admin-only auth middleware
+ * Access: Admin only
  */
-router.post('/recommendations/clear-cache', clearRecommendationCache);
+// router.post('/recommendations/clear-cache', adminAuth, clearRecommendationCache);
 
 // TODO: Future ML endpoints to implement:
 // - POST /ml/feedback - Collect user feedback on recommendations
