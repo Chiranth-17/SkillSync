@@ -171,8 +171,8 @@ const seedDatabase = async () => {
       },
       {
         name: "Rohan Gupta",
-        email: "rohan@rvce.edu.in",
-        collegeEmail: "rohan@rvce.edu.in",
+        email: "rohan@biet.edu.in",
+        collegeEmail: "rohan@biet.edu.in",
         passwordHash,
         bio: "Final year ECE student. I build robots and write embedded C code. Also a huge guitar nerd.",
         location: "Bengaluru, India",
@@ -378,7 +378,7 @@ const seedDatabase = async () => {
     console.log(`Created ${createdUsers.length} users with gamification and campus details`);
 
     // 4. Create RV Verification for Rohan
-    const rohanUser = createdUsers.find(u => u.email === 'rohan@rvce.edu.in');
+    const rohanUser = createdUsers.find(u => u.email === 'rohan@biet.edu.in');
     if (rohanUser) {
       await User.findByIdAndUpdate(rohanUser._id, {
         rvProfile: {

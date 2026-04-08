@@ -59,7 +59,7 @@ async function runVerification() {
         const expiresAtExpected = new Date(Date.now() + 180 * 24 * 60 * 60 * 1000);
         const verification = new RVVerification({
             userId: testUser._id,
-            rvEmail: 'test@rv.edu.in',
+            rvEmail: 'test@biet.edu.in',
             idCardImageUrl: 'http://img',
             status: 'verified',
             expiresAt: expiresAtExpected

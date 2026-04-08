@@ -2,16 +2,16 @@ const User = require('../models/User');
 const RVVerification = require('../models/RVVerification');
 const { sendRVVerificationOTP } = require('../services/emailService');
 
-const RV_EMAIL_REGEX = /^[^\s@]+@(rvce\.edu\.in|rv\.edu\.in|ms\.rvce\.edu\.in)$/i;
+const RV_EMAIL_REGEX = /^[^\s@]+@(biet\.edu\.in|ms\.biet\.edu\.in)$/i;
 
 /**
- * Start RV College verification process
+ * Start BIET verification process
  * Validates RV email domain, generates 6-digit OTP, and sends it to the user's RV email
  * 
  * @route POST /api/rv-verification/start
  * @access Protected (requires authentication)
  * @param {Object} req.body - Request body
- * @param {string} req.body.rvEmail - RV College email address
+ * @param {string} req.body.rvEmail - BIET email address
  * @param {string} req.body.rvLoginId - Optional RV login ID
  * @param {string} req.body.idCardImageUrl - URL of uploaded ID card image
  * @returns {Object} 200 - Success response with status
@@ -33,7 +33,7 @@ exports.startVerification = async (req, res, next) => {
 
     if (!RV_EMAIL_REGEX.test(rvEmail)) {
       return res.status(400).json({
-        message: 'Invalid RV College email domain. Please use @rvce.edu.in, @rv.edu.in, or @ms.rvce.edu.in'
+        message: 'Invalid BIET email domain. Please use @biet.edu.in or @ms.biet.edu.in'
       });
     }
 
@@ -108,7 +108,7 @@ exports.startVerification = async (req, res, next) => {
 };
 
 /**
- * Verify OTP for RV College email verification
+ * Verify OTP for BIET email verification
  * Validates the OTP and checks expiration (10 minutes)
  * Upon success, marks verification as complete and clears OTP data
  * 
@@ -210,7 +210,7 @@ exports.verifyOTP = async (req, res, next) => {
       status: 'verified',
       verifiedAt: verification.verifiedAt,
       expiresAt: verification.expiresAt,
-      message: 'RV College verification successful! You have been verified.'
+      message: 'BIET verification successful! You have been verified.'
     });
   } catch (err) {
     next(err);

@@ -3,7 +3,7 @@ const { sendRVVerificationOTP } = require('../services/emailService');
 
 const testData = {
   userName: 'Test User',
-  rvEmail: 'test@rvce.edu.in',
+  rvEmail: 'test@biet.edu.in',
   otp: '123456',
   expiryMinutes: 10
 };

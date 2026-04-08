@@ -78,7 +78,7 @@ app.use('/api/user/demo-videos', videoRoutes); // For GET/DELETE /api/user/demo-
 app.use('/api/user', userRoutes); // For /api/user/profile
 app.use('/api/ml', mlRoutes); // ML-powered skill recommendations
 app.use('/api/ml', analyticsRoutes); // ML analytics and predictions
-app.use('/api/rv-verification', rvVerificationRoutes); // RV College verification
+app.use('/api/rv-verification', rvVerificationRoutes); // BIET verification
 app.use('/api/roadmaps', require('./routes/roadmapRoutes')); // Dynamic Roadmaps
 
 // ----------------------------------------------

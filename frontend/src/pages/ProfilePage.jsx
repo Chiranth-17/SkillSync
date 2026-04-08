@@ -202,7 +202,7 @@ export default function ProfilePage() {
 
 
 
-      {/* RV College Verification */}
+      {/* BIET Verification */}
       <section className="mt-8">
         <RVVerificationSection />
       </section>

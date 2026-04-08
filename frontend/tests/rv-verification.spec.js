@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-test.describe('RV College Verification Feature', () => {
+test.describe('BIET Verification Feature', () => {
   let userEmail;
   let userName;
 
@@ -22,7 +22,7 @@ test.describe('RV College Verification Feature', () => {
   test('RV verification section renders on profile page', async ({ page }) => {
     await page.goto('/profile');
     
-    await expect(page.getByText('RV College Verification')).toBeVisible();
+    await expect(page.getByText('BIET Verification')).toBeVisible();
     
     await expect(page.locator('input[placeholder*="RV email"]').or(page.locator('input[type="email"]').filter({ hasText: '' }))).toBeVisible();
     
@@ -34,16 +34,16 @@ test.describe('RV College Verification Feature', () => {
     
     await expect(page.locator('h1')).toContainText(userName);
     
-    const rvBadge = page.getByText('Verified (RV College)');
+    const rvBadge = page.getByText('Verified (BIET)');
     await expect(rvBadge).not.toBeVisible();
   });
 
   test('RV verification section shows all required input fields', async ({ page }) => {
     await page.goto('/profile');
     
-    await page.getByText('RV College Verification').scrollIntoViewIfNeeded();
+    await page.getByText('BIET Verification').scrollIntoViewIfNeeded();
     
-    const rvSection = page.locator('text=RV College Verification').locator('..').locator('..');
+    const rvSection = page.locator('text=BIET Verification').locator('..').locator('..');
     
     await expect(rvSection).toBeVisible();
   });
@@ -89,7 +89,7 @@ test.describe('RV Verification Badge on Mentor Cards', () => {
     
     if (cardCount > 0) {
       const firstCard = mentorCards.first();
-      const rvBadge = firstCard.getByText('Verified (RV College)');
+      const rvBadge = firstCard.getByText('Verified (BIET)');
       
       const exists = await rvBadge.count();
       if (exists > 0) {
@@ -104,7 +104,7 @@ test.describe('RV Verification Badge Component', () => {
   test('badge component renders with correct styling when verified', async ({ page }) => {
     await page.goto('/profile');
     
-    const rvBadge = page.getByText('Verified (RV College)');
+    const rvBadge = page.getByText('Verified (BIET)');
     const badgeExists = await rvBadge.count();
     
     if (badgeExists > 0) {
@@ -149,7 +149,7 @@ test.describe('Profile Page Badge Integration', () => {
     await expect(badgeContainer).toBeVisible();
     
     const generalBadge = page.getByText('Verified').first();
-    const rvBadge = page.getByText('Verified (RV College)');
+    const rvBadge = page.getByText('Verified (BIET)');
     
     const generalExists = await generalBadge.count();
     const rvExists = await rvBadge.count();

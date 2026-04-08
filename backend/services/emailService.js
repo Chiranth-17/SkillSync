@@ -207,7 +207,7 @@ async function sendRVVerificationOTP(data) {
 
     const result = await provider.sendEmail({
       to: data.rvEmail,
-      subject: 'Your RV College Verification OTP - SkillSync',
+      subject: 'Your BIET Verification OTP - SkillSync',
       html
     });
 

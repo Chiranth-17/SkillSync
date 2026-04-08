@@ -70,7 +70,7 @@ export default function RVVerificationSection() {
       const result = await verifyRVOTP({ otp: otp.trim() });
 
       if (result.success) {
-        notifySuccess(result.message || 'RV College verification successful!');
+        notifySuccess(result.message || 'BIET College verification successful!');
         setStatus('verified');
         setEmailVerified(true);
         await loadStatus();
@@ -94,7 +94,7 @@ export default function RVVerificationSection() {
             <div>
               <h3 className="text-lg font-semibold text-orange-900">Verification Expired</h3>
               <p className="text-sm text-orange-700 mt-1">
-                Your RV College verification expired on {new Date(verificationData.expiresAt).toLocaleDateString()}.
+                Your BIET College verification expired on {new Date(verificationData.expiresAt).toLocaleDateString()}.
                 Please re-verify to maintain your status.
               </p>
               <button
@@ -119,9 +119,9 @@ export default function RVVerificationSection() {
         <div className="flex items-start space-x-3">
           <Check className="w-6 h-6 text-green-600 flex-shrink-0 mt-0.5" />
           <div className="w-full">
-            <h3 className="text-lg font-semibold text-green-900">RV College Verified</h3>
+            <h3 className="text-lg font-semibold text-green-900">BIET Verified</h3>
             <p className="text-sm text-green-700 mt-1">
-              Your RV College email <strong>{verificationData?.rvEmail}</strong> has been verified.
+              Your BIET email <strong>{verificationData?.rvEmail}</strong> has been verified.
             </p>
             {verificationData?.expiresAt && (
               <p className="text-xs text-green-600 mt-2 mb-4">
@@ -188,9 +188,9 @@ export default function RVVerificationSection() {
   return (
     <div className="bg-white border border-gray-200 rounded-lg p-6 space-y-6">
       <div>
-        <h3 className="text-lg font-semibold text-gray-900">RV College Verification</h3>
+        <h3 className="text-lg font-semibold text-gray-900">BIET Verification</h3>
         <p className="text-sm text-gray-600 mt-1">
-          Verify your RV College affiliation with your college email.
+          Verify your BIET affiliation with your college email.
         </p>
       </div>
 
@@ -198,19 +198,19 @@ export default function RVVerificationSection() {
         {/* RV Email */}
         <div>
           <label htmlFor="rvEmail" className="block text-sm font-medium text-gray-700 mb-2">
-            RV College Email <span className="text-red-500">*</span>
+            BIET Email <span className="text-red-500">*</span>
           </label>
           <input
             id="rvEmail"
             type="email"
             value={rvEmail}
             onChange={(e) => setRvEmail(e.target.value)}
-            placeholder="student@rvce.edu.in"
+            placeholder="student@biet.edu.in"
             disabled={status === 'pending'}
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
           />
           <p className="text-xs text-gray-500 mt-1">
-            Use your official RV College email (@rvce.edu.in, @rv.edu.in, or @ms.rvce.edu.in)
+            Use your official BIET email (@biet.edu.in or @ms.biet.edu.in)
           </p>
         </div>
 
@@ -299,7 +299,7 @@ export default function RVVerificationSection() {
         {status === 'pending' && emailVerified && (
           <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
             <p className="text-sm text-yellow-800">
-              <strong>Email Verified!</strong> Your RV College email has been verified successfully.
+              <strong>Email Verified!</strong> Your BIET College email has been verified successfully.
             </p>
           </div>
         )}
